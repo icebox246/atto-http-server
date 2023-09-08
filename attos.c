@@ -12,6 +12,7 @@
 
 char* base_path = ".";
 int port = 8080;
+int show_listing = 1;
 
 int server_sock = -1;
 
@@ -31,8 +32,10 @@ void print_usage(FILE* fd, const char* program_name) {
     fprintf(fd, "PATH:\n");
     fprintf(fd, "  path to the directory you want to serve\n");
     fprintf(fd, "FLAGS:\n");
-    fprintf(fd, "  -h | -? | --help:             Show this message on stdout\n");
-    fprintf(fd, "  -p <PORT> | --port <PORT>:    Set port to listen on\n");
+    fprintf(fd, "  -h | -? | --help           : Show this message on stdout\n");
+    fprintf(fd, "  -p <PORT> | --port <PORT>  : Set port to listen on\n");
+    fprintf(fd, "  -L | --no-listing          : Disable showing dir listing\n");
+    fprintf(fd, "                               (show index.html instead)\n");
 }
 
 void onexit(void) {
@@ -141,10 +144,14 @@ void send_html(int fd, const char* html) {
 struct mimetype_def {
     char *extension, *mimetype;
 } known_types[] = {
+    //clang-format off
     {"html", "text/html"},
-    {"png", "image/png"},
-    {"jpg", "image/jpg"},
-    {"bmp", "image/bmp"},
+    {"css",  "text/css"},
+    {"js",   "text/javascript"},
+    {"png",  "image/png"},
+    {"jpg",  "image/jpg"},
+    {"bmp",  "image/bmp"},
+    //clang-format on
 };
 
 #define known_types_count (sizeof(known_types) / sizeof(known_types[0]))
@@ -260,7 +267,7 @@ void handle_connection(int client_sock) {
 
         int base_path_len = strlen(base_path);
         int url_len = strlen(url);
-        char resource_name[base_path_len + url_len + 1];
+        char resource_name[base_path_len + url_len + sizeof("index.html") + 1];
         strcpy(resource_name, base_path);
         strcat(resource_name, url);
 
@@ -286,8 +293,29 @@ void handle_connection(int client_sock) {
                     strcat(resource_name_fixed, "/");
                     send_redirect(client_sock, resource_name_fixed);
                 } else {
-                    printf("[INFO]: Sending index of `%s`\n", resource_name);
-                    send_directory_index(client_sock, resource_name);
+                    if (show_listing) {
+                        printf("[INFO]: Sending index of `%s`\n",
+                               resource_name);
+                        send_directory_index(client_sock, resource_name);
+                    } else {
+                        strcat(resource_name, "index.html");
+                        if (stat(resource_name, &st)) {
+                            if (errno == ENOENT) {
+                                printf("[INFO]: Sending not found `%s`\n",
+                                       resource_name);
+                                send_not_found(client_sock);
+                            } else {
+                                fprintf(stderr,
+                                        "[ERRO] Failed to stat(\"%s\"): %s\n",
+                                        resource_name, strerror(errno));
+                                send_internal_error(client_sock);
+                            }
+                            return;
+                        }
+                        printf("[INFO]: Sending index file `%s`\n",
+                               resource_name);
+                        send_file(client_sock, resource_name);
+                    }
                 }
             } break;
             case S_IFREG: {
@@ -313,8 +341,7 @@ int main(int argc, char** argv) {
                 strcmp(arg, "--help") == 0) {
                 print_usage(stdout, program_name);
                 exit(0);
-            }
-            if (strcmp(arg, "-p") == 0 || strcmp(arg, "--port") == 0) {
+            } else if (strcmp(arg, "-p") == 0 || strcmp(arg, "--port") == 0) {
                 if (argc == 0) {
                     fprintf(stderr,
                             "[ERRO]: Expected argument specifying port");
@@ -324,6 +351,9 @@ int main(int argc, char** argv) {
                 char* port_s = shift_arg(&argc, &argv);
 
                 port = atoi(port_s);
+            } else if (strcmp(arg, "-L") == 0 ||
+                       strcmp(arg, "--no-listing") == 0) {
+                show_listing = 0;
             } else {
                 fprintf(stderr, "[ERRO]: Unknown flag: `%s`\n", arg);
                 fprintf(stderr, "[INFO]: Try `%s --help`\n", program_name);

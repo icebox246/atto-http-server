@@ -17,6 +17,8 @@ Currently only POSIX systems are supported.
 * GET requests for served files
 * Basic content type recognition based on file extension, supports:
     - `.html` -> `text/html`
+    - `.css` -> `text/css`
+    - `.js` -> `text/javascript`
     - `.png` -> `image/png`
     - `.jpg` -> `image/jpg`
     - `.bmp` -> `image/bmp`
